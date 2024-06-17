@@ -11,6 +11,7 @@ use string_interner::StringInterner;
 use self::acyclic::DirectedAcyclicGraph;
 use self::get_rel2_on_rel1::get_values_on_rel_map;
 use crate::prelude::*;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Not;
 use std::sync::Arc;
@@ -127,6 +128,10 @@ impl DirectedGraphBuilder {
             children_map,
             parent_map,
             n_edges,
+            u32x1_buf_1: RefCell::default(),
+            u32x1_buf_2: RefCell::default(),
+            u32x2_buf_1: RefCell::default(),
+            u32x1_set_1: RefCell::default(),
         }
     }
 
@@ -155,6 +160,14 @@ pub struct DirectedGraph {
     /// Key: Child | Value: Parents
     pub(crate) parent_map: HashMap<u32, HashSet<u32, FxBuildHasher>, FxBuildHasher>,
     pub(crate) n_edges: usize,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub(crate) u32x1_buf_1: RefCell<Vec<u32>>,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub(crate) u32x1_buf_2: RefCell<Vec<u32>>,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub(crate) u32x2_buf_1: RefCell<Vec<(u32, u32)>>,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub(crate) u32x1_set_1: RefCell<HashSet<u32, FxBuildHasher>>,
 }
 
 impl std::fmt::Debug for DirectedGraph {
@@ -243,10 +256,10 @@ impl DirectedGraph {
         &self,
         nodes: impl IntoIterator<Item = impl AsRef<str>>,
     ) -> GraphInteractionResult<Vec<&str>> {
-        let mut res = Vec::new();
+        let mut res = self.u32x1_buf_1.borrow_mut();
         let nodes = self.get_internal_mul(nodes)?;
         self.children_u32(&nodes, &mut res);
-        Ok(self.resolve_mul(res))
+        Ok(self.resolve_mul(res.drain(..)))
     }
 
     pub(crate) fn parents_u32(&self, ids: &[u32], out: &mut Vec<u32>) {
@@ -265,10 +278,10 @@ impl DirectedGraph {
         &self,
         nodes: impl IntoIterator<Item = impl AsRef<str>>,
     ) -> GraphInteractionResult<Vec<&str>> {
-        let mut res = Vec::new();
+        let mut res = self.u32x1_buf_1.borrow_mut();
         let nodes = self.get_internal_mul(nodes)?;
         self.parents_u32(&nodes, &mut res);
-        Ok(self.resolve_mul(res))
+        Ok(self.resolve_mul(res.drain(..)))
     }
 
     pub fn has_parents(
@@ -331,8 +344,8 @@ impl DirectedGraph {
         }
 
         let mut queue = VecDeque::new();
-        let mut visited = HashSet::with_hasher(FxBuildHasher::default());
-        let mut parents = Vec::new(); // To track the path back to the start node
+        let mut visited = self.u32x1_set_1.borrow_mut();
+        let mut parents = self.u32x2_buf_1.borrow_mut(); // To track the path back to the start node
 
         // Initialize
         queue.push_back(from);
@@ -346,13 +359,23 @@ impl DirectedGraph {
 
                         if child == to {
                             // If goal found, construct the path from parents
-                            return Ok(self.resolve_mul(construct_path(&parents, from, to)));
+                            let path = self.resolve_mul(construct_path(&parents, from, to));
+
+                            // Clear the buffers we are using
+                            parents.clear();
+                            visited.clear();
+
+                            return Ok(path);
                         }
                         queue.push_back(child);
                     }
                 }
             }
         }
+
+        // Clear the buffers we are using
+        parents.clear();
+        visited.clear();
 
         Ok(Vec::new())
     }
@@ -460,6 +483,10 @@ impl DirectedGraph {
             parent_map: HashMap::default(),
             nodes: Vec::new(),
             n_edges: 0,
+            u32x1_buf_1: RefCell::default(),
+            u32x1_buf_2: RefCell::default(),
+            u32x2_buf_1: RefCell::default(),
+            u32x1_set_1: RefCell::default(),
         };
 
         let mut visited = HashSet::new();

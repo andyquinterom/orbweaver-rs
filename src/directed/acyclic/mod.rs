@@ -68,7 +68,7 @@ impl DirectedAcyclicGraph {
             return Ok(vec![]); // No path from start to goal in a DAG if start comes after goal in topo order
         }
 
-        let mut path = Vec::new();
+        let mut path = self.u32x1_buf_1.borrow_mut();
         let mut current = to;
         path.push(current);
 
@@ -79,7 +79,7 @@ impl DirectedAcyclicGraph {
                 current = node_id;
                 if current == from {
                     path.reverse();
-                    return Ok(self.resolve_mul(path));
+                    return Ok(self.resolve_mul(path.drain(..)));
                 }
             }
         }
@@ -136,8 +136,8 @@ impl DirectedAcyclicGraph {
         let to = self.get_internal(to)?;
 
         let mut all_paths = Vec::new();
-        let mut current_path = Vec::new();
-        let mut children = Vec::new();
+        let mut current_path = self.u32x1_buf_1.borrow_mut();
+        let mut children = self.u32x1_buf_2.borrow_mut();
 
         // Start DFS from the start node
         dfs(
@@ -148,6 +148,10 @@ impl DirectedAcyclicGraph {
             &mut all_paths,
             &mut children,
         );
+
+        // Clear buffers we are using
+        current_path.clear();
+        children.clear();
 
         Ok(all_paths
             .into_iter()
